@@ -2,12 +2,12 @@ package client
 
 import (
 	"io/ioutil"
-	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/clientcmd"
 	"net/http"
 
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+
 	configv1 "github.com/openshift/api/config/v1"
-	"github.com/openshift/library-go/pkg/network"
 )
 
 // GetKubeConfigOrInClusterConfig loads in-cluster config if kubeConfigFile is empty or the file if not,
@@ -98,8 +98,6 @@ func (c ClientTransportOverrides) DefaultClientTransport(rt http.RoundTripper) h
 	if !ok {
 		return rt
 	}
-
-	transport.DialContext = network.DefaultClientDialContext()
 
 	// Hold open more internal idle connections
 	transport.MaxIdleConnsPerHost = 100
