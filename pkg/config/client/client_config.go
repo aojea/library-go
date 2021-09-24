@@ -2,12 +2,15 @@ package client
 
 import (
 	"io/ioutil"
+	"net"
 	"net/http"
+	"time"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/library-go/pkg/network/resolver"
 )
 
 // GetKubeConfigOrInClusterConfig loads in-cluster config if kubeConfigFile is empty or the file if not,
@@ -49,10 +52,18 @@ func GetClientConfig(kubeConfigFile string, overrides *ClientConnectionOverrides
 	}
 	applyClientConnectionOverrides(overrides, clientConfig)
 
+	// create an apiserver resolver
+	r, err := resolver.NewResolver(ctx, clientConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	t := ClientTransportOverrides{WrapTransport: clientConfig.WrapTransport}
 	if overrides != nil {
 		t.MaxIdleConnsPerHost = overrides.MaxIdleConnsPerHost
 	}
+	t.Resolver = r
+
 	clientConfig.WrapTransport = t.DefaultClientTransport
 
 	return clientConfig, nil
@@ -90,6 +101,7 @@ func applyClientConnectionOverrides(overrides *ClientConnectionOverrides, kubeCo
 type ClientTransportOverrides struct {
 	WrapTransport       func(rt http.RoundTripper) http.RoundTripper
 	MaxIdleConnsPerHost int
+	Resolver            *net.Resolver
 }
 
 // defaultClientTransport sets defaults for a client Transport that are suitable for use by infrastructure components.
@@ -103,6 +115,14 @@ func (c ClientTransportOverrides) DefaultClientTransport(rt http.RoundTripper) h
 	transport.MaxIdleConnsPerHost = 100
 	if c.MaxIdleConnsPerHost > 0 {
 		transport.MaxIdleConnsPerHost = c.MaxIdleConnsPerHost
+	}
+
+	if c.Resolver != nil {
+		transport.Dial = (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Resolver:  c.Resolver,
+		}).Dial
 	}
 
 	if c.WrapTransport == nil {
