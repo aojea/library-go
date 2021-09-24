@@ -21,6 +21,10 @@ import (
 	netutils "k8s.io/utils/net"
 )
 
+const (
+	unsupportedErrorMsg = "Unsupported configuration"
+)
+
 // ResolverOption defines the functional option type for resolver
 type ResolverOption func(*resolver) *resolver
 
@@ -176,21 +180,19 @@ func (r *resolver) refreshCache(ctx context.Context) error {
 	}
 	// Get IPs from the Endpoint.
 	ips := []net.IP{}
-	supported := true
 	for _, ss := range endpoint.Subsets {
 		for _, e := range ss.Addresses {
 			ips = append(ips, netutils.ParseIPSloppy(e.IP))
 		}
 		if len(ss.Ports) != 1 {
-			klog.Info("Unsupported api servers endpoints with multiple ports")
-			supported = false
+			return fmt.Errorf("%s : API server Endpoints with multiple ports", unsupportedErrorMsg)
 		} else if strconv.Itoa(int(ss.Ports[0].Port)) != r.port {
-			klog.Info("Unsupported api servers host with different port")
-			supported = false
+			return fmt.Errorf("%s : API server Endpoints port %v expected port", unsupportedErrorMsg, ss.Ports[0].Port, r.port)
 		}
 	}
-	// Do nothing if there are no IPs published or is an unsupported configuration.
-	if len(ips) == 0 || !supported {
+
+	// Do nothing if there are no IPs published.
+	if len(ips) == 0 {
 		return nil
 	}
 
@@ -240,6 +242,14 @@ func (r *resolver) Start(ctx context.Context) {
 				if err == nil {
 					lastNetworkError = time.Time{}
 					continue
+				}
+				// stop running on unsupported configuration, this will keep previous behavior
+				if strings.Contains(err.Error(), unsupportedErrorMsg) {
+					klog.Infof("Stopping in memory apiserver resolver: %v", err)
+					r.mu.Lock()
+					r.cache = []net.IP{}
+					r.mu.Unlock()
+					return
 				}
 				// nothing to do here, continue
 				if len(r.cache) == 0 {
